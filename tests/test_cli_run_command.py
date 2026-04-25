@@ -81,6 +81,39 @@ def test_setup_logging_attaches_stream_handler() -> None:
         root.handlers = initial_handlers
 
 
+def test_cmd_run_once_polls_all_active_profiles_then_exits(tmp_path: Path) -> None:
+    html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
+    db_path = tmp_path / "ka.db"
+    cfg = _config(tmp_path, profiles_yaml=f"""
+defaults:
+  db_path: {db_path}
+profiles:
+  - name: a
+    query: x
+  - name: b
+    query: y
+""")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="")
+        return httpx.Response(200, text=html)
+
+    parser = build_parser()
+    args = parser.parse_args(["run", "--config", str(cfg), "--once"])
+    rc = cmd_run(args, env=ENV, transport=httpx.MockTransport(handler))
+    assert rc == 0
+    # Both profiles should have been polled (first-run = silent bootstrap, marks all seen)
+    import sqlite3
+    counts = dict(
+        sqlite3.connect(str(db_path)).execute(
+            "SELECT profile, COUNT(*) FROM seen_listings GROUP BY profile"
+        ).fetchall()
+    )
+    assert counts.get("a", 0) > 0
+    assert counts.get("b", 0) > 0
+
+
 def test_setup_logging_with_file_creates_rotating_handler(tmp_path: Path) -> None:
     from logging.handlers import RotatingFileHandler
 
