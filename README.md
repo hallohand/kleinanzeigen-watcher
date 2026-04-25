@@ -54,6 +54,30 @@ config.yaml ──► load_config() ──► Profile-Liste
 | `cli.py` | `test`- und `run`-Subkommandos |
 | `logging_setup.py` | StreamHandler + optional RotatingFileHandler |
 
+## Cloud-Deployment (kostenlos via GitHub Actions)
+
+Dieses Repo läuft in Produktion auf GitHub Actions (free tier, public repo).
+Zwei Workflows:
+
+| Workflow | Trigger | Was er tut |
+|---|---|---|
+| `.github/workflows/poll.yml` | alle 10 Min (cron) + manuell | `run --once`, persistiert die SQLite-DB als git commit zurück |
+| `.github/workflows/digest.yml` | täglich 07:00 UTC (= 09:00 CEST sommers, 08:00 CET winters) | `top5 --telegram` — schickt die aktuellen Top-Empfehlungen |
+
+**Secrets** im Repo (`Settings → Secrets and variables → Actions`):
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+- `ANTHROPIC_API_KEY`
+
+**Manuell triggern:**
+```bash
+gh workflow run poll.yml
+gh workflow run digest.yml
+gh run list --limit 5     # letzte runs anschauen
+```
+
+**Lokales Setup (alternativ, für Entwicklung)** — siehe nächster Abschnitt.
+
 ## Schnellstart
 
 ```bash
