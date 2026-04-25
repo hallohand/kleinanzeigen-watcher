@@ -1,0 +1,23 @@
+[Unit]
+Description=Kleinanzeigen Watcher - taeglicher Top-5 Telegram-Digest
+Documentation=https://github.com/jonas-seidel/kleinanzeigen
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/jonas/Claude/kleinanzeigen
+EnvironmentFile=/home/jonas/Claude/kleinanzeigen/.env
+ExecStart=/home/jonas/Claude/kleinanzeigen/.venv/bin/python -m kleinanzeigen_watcher top5 --config /home/jonas/Claude/kleinanzeigen/config.yaml --telegram
+
+# Logging ins User-Journal: journalctl --user -u kleinanzeigen-watcher-top5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kleinanzeigen-watcher-top5
+
+# Hardening (User-Service-tauglich)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/jonas/Claude/kleinanzeigen
+ProtectControlGroups=true
+ProtectKernelModules=true

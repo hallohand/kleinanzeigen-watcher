@@ -1,0 +1,14 @@
+[Unit]
+Description=Loest taeglich um 09:00 den Top-5-Telegram-Digest aus
+Documentation=https://github.com/jonas-seidel/kleinanzeigen
+
+[Timer]
+# Taeglich 09:00 Ortszeit. Persistent=true holt verpasste Trigger nach,
+# falls der Rechner zur Zielzeit nicht lief (Laptop zugeklappt etc.).
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+AccuracySec=1min
+Unit=kleinanzeigen-watcher-top5.service
+
+[Install]
+WantedBy=timers.target
