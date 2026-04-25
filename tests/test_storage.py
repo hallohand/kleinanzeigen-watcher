@@ -88,4 +88,4 @@ def test_filter_new_preserves_order(storage: Storage) -> None:
     storage.mark_seen("p1", [_listing("2")])
     listings = [_listing("1"), _listing("2"), _listing("3")]
     new = storage.filter_new("p1", listings)
-    assert [l.id for l in new] == ["1", "3"]
+    assert [lst.id for lst in new] == ["1", "3"]

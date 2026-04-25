@@ -41,19 +41,19 @@ class Storage:
         listings = list(listings)
         if not listings:
             return []
-        ids = [l.id for l in listings]
+        ids = [lst.id for lst in listings]
         placeholders = ",".join("?" * len(ids))
         cur = self._conn.execute(
             f"SELECT id FROM seen_listings WHERE profile = ? AND id IN ({placeholders})",
             (profile, *ids),
         )
         seen = {row[0] for row in cur.fetchall()}
-        return [l for l in listings if l.id not in seen]
+        return [lst for lst in listings if lst.id not in seen]
 
     def mark_seen(self, profile: str, listings: Iterable[Listing]) -> None:
         rows = [
-            (l.id, profile, datetime.now().isoformat(timespec="seconds"), l.title, l.price, l.url)
-            for l in listings
+            (lst.id, profile, datetime.now().isoformat(timespec="seconds"), lst.title, lst.price, lst.url)
+            for lst in listings
         ]
         if not rows:
             return

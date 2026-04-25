@@ -12,6 +12,9 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 def setup_logging(*, verbose: bool, log_dir: Path | None = None) -> None:
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
+    # Keep underlying HTTP libs quiet even in verbose mode.
+    for noisy in ("httpcore", "httpx", "httpcore.http11", "httpcore.connection"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     formatter = logging.Formatter(_FORMAT, datefmt=_DATEFMT)
 
