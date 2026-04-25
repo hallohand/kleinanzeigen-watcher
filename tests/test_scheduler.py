@@ -245,6 +245,29 @@ def test_evaluator_passes_reason_to_notifier_for_recommended(tmp_path: Path) -> 
     assert kwargs.get("verdict_reason") == "Dell, 24 Zoll, FullHD"
 
 
+def test_verdicts_persisted_to_storage(tmp_path: Path) -> None:
+    html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
+    storage = Storage(tmp_path / "db")
+    evaluator = MagicMock(spec=Evaluator)
+    # First call returns recommended True, rest False
+    evaluator.evaluate.side_effect = lambda lst: (
+        Verdict(recommended=True, reason="ja " + lst.id) if lst.id == "3391823696"
+        else Verdict(recommended=False, reason="nein")
+    )
+
+    sched, _ = _make_scheduler(
+        fetcher=_make_fetcher(html), storage=storage,
+        profiles=[_profile(ai_filter=True)], evaluator=evaluator,
+    )
+    # bootstrap=True triggers eval+persist via the new evaluate-during-bootstrap path
+    sched.poll_once(_profile(ai_filter=True), bootstrap=True, evaluate_during_bootstrap=True)
+
+    top = storage.get_top_recommended("p1", limit=10)
+    assert len(top) == 1
+    assert top[0][0].id == "3391823696"
+    assert "ja 3391823696" in top[0][1]
+
+
 def test_non_recommended_still_marked_seen_to_avoid_re_evaluation(tmp_path: Path) -> None:
     html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
     storage = Storage(tmp_path / "db")

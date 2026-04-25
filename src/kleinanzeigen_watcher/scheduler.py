@@ -37,7 +37,13 @@ class Scheduler:
         self._evaluator = evaluator
         self._stop_event = threading.Event()
 
-    def poll_once(self, profile: Profile, *, bootstrap: bool = False) -> int:
+    def poll_once(
+        self,
+        profile: Profile,
+        *,
+        bootstrap: bool = False,
+        evaluate_during_bootstrap: bool = False,
+    ) -> int:
         url = build_search_url(
             query=profile.query,
             plz=profile.plz,
@@ -70,15 +76,26 @@ class Scheduler:
             return 0
 
         first_run = bootstrap or not self._storage.has_any_for_profile(profile.name)
-        if first_run:
+
+        if first_run and not evaluate_during_bootstrap:
             log.info("first poll for profile %s — marking %d listings as seen, no notifications",
                      profile.name, len(listings))
             self._storage.mark_seen(profile.name, listings)
             return 0
 
+        if first_run and evaluate_during_bootstrap:
+            # Evaluate every current listing once and persist verdicts. No Telegram (avoids initial spam).
+            verdicts = self._evaluate_all(profile, listings)
+            self._storage.mark_seen(profile.name, listings, verdicts=verdicts)
+            recommended = sum(1 for v in verdicts.values() if v[0])
+            log.info("profile %s: bootstrap-evaluated %d listings, %d recommended (no notifications sent)",
+                     profile.name, len(listings), recommended)
+            return 0
+
         new = self._storage.filter_new(profile.name, listings)
         sent = 0
         evaluated_skipped = 0
+        verdicts: dict[str, tuple[bool, str]] = {}
         for listing in new:
             verdict_reason: str | None = None
             if profile.ai_filter and self._evaluator is not None:
@@ -87,6 +104,7 @@ class Scheduler:
                 except Exception:
                     log.exception("evaluator crashed for listing %s — skipping", listing.id)
                     continue
+                verdicts[listing.id] = (verdict.recommended, verdict.reason)
                 if not verdict.recommended:
                     evaluated_skipped += 1
                     log.info("profile %s: skipping %s — %s", profile.name, listing.id, verdict.reason)
@@ -99,10 +117,24 @@ class Scheduler:
                 log.exception("notify failed for listing %s in profile %s", listing.id, profile.name)
         # Mark all parsed listings as seen, including the ones the evaluator rejected —
         # avoids re-evaluating the same listing every poll cycle.
-        self._storage.mark_seen(profile.name, listings)
+        self._storage.mark_seen(profile.name, listings, verdicts=verdicts or None)
         if sent or evaluated_skipped:
             log.info("profile %s: %d notified, %d skipped by evaluator", profile.name, sent, evaluated_skipped)
         return sent
+
+    def _evaluate_all(self, profile: Profile, listings: list) -> dict[str, tuple[bool, str]]:
+        verdicts: dict[str, tuple[bool, str]] = {}
+        if not (profile.ai_filter and self._evaluator is not None):
+            return verdicts
+        for i, listing in enumerate(listings, 1):
+            try:
+                verdict = self._evaluator.evaluate(listing)
+                verdicts[listing.id] = (verdict.recommended, verdict.reason)
+                log.info("[%d/%d] %s → %s: %s", i, len(listings), listing.id,
+                         "JA" if verdict.recommended else "nein", verdict.reason)
+            except Exception:
+                log.exception("evaluator crashed for listing %s during bootstrap", listing.id)
+        return verdicts
 
     def request_stop(self) -> None:
         self._stop_event.set()

@@ -89,3 +89,72 @@ def test_filter_new_preserves_order(storage: Storage) -> None:
     listings = [_listing("1"), _listing("2"), _listing("3")]
     new = storage.filter_new("p1", listings)
     assert [lst.id for lst in new] == ["1", "3"]
+
+
+def test_mark_seen_with_verdicts_persists_recommended_and_reason(storage: Storage) -> None:
+    listings = [_listing("1", "Dell"), _listing("2", "Junk")]
+    verdicts = {"1": (True, "Dell, gut"), "2": (False, "no-name")}
+    storage.mark_seen("p1", listings, verdicts=verdicts)
+
+    top = storage.get_top_recommended("p1", limit=10)
+    assert len(top) == 1
+    assert top[0][0].id == "1"
+    assert top[0][1] == "Dell, gut"
+
+
+def test_mark_seen_without_verdicts_leaves_recommended_null(storage: Storage) -> None:
+    storage.mark_seen("p1", [_listing("1")])
+    assert storage.get_top_recommended("p1", limit=10) == []
+
+
+def test_get_top_recommended_orders_by_first_seen_desc(storage: Storage, tmp_path: Path) -> None:
+    import time
+    storage.mark_seen("p1", [_listing("1")], verdicts={"1": (True, "first")})
+    time.sleep(1.1)  # crude but deterministic — first_seen_at uses second resolution
+    storage.mark_seen("p1", [_listing("2")], verdicts={"2": (True, "second")})
+
+    top = storage.get_top_recommended("p1", limit=10)
+    assert [lst.id for lst, _ in top] == ["2", "1"]
+
+
+def test_get_top_recommended_limit_caps_results(storage: Storage) -> None:
+    listings = [_listing(str(i)) for i in range(8)]
+    verdicts = {str(i): (True, f"r{i}") for i in range(8)}
+    storage.mark_seen("p1", listings, verdicts=verdicts)
+    assert len(storage.get_top_recommended("p1", limit=5)) == 5
+
+
+def test_re_evaluation_updates_verdict(storage: Storage) -> None:
+    storage.mark_seen("p1", [_listing("1")])  # first seen, no verdict
+    assert storage.get_top_recommended("p1", limit=10) == []
+
+    storage.mark_seen("p1", [_listing("1", "Dell update")], verdicts={"1": (True, "actually good")})
+    top = storage.get_top_recommended("p1", limit=10)
+    assert len(top) == 1
+    assert top[0][1] == "actually good"
+
+
+def test_legacy_db_without_new_columns_is_migrated(tmp_path: Path) -> None:
+    import sqlite3
+    db_path = tmp_path / "legacy.db"
+    con = sqlite3.connect(str(db_path))
+    con.executescript("""
+        CREATE TABLE seen_listings (
+            id TEXT NOT NULL, profile TEXT NOT NULL, first_seen_at TIMESTAMP NOT NULL,
+            title TEXT, price TEXT, url TEXT, PRIMARY KEY (id, profile)
+        );
+    """)
+    con.execute(
+        "INSERT INTO seen_listings VALUES (?, ?, ?, ?, ?, ?)",
+        ("oldid", "p1", "2026-01-01T00:00:00", "Old", "1 €", "https://x"),
+    )
+    con.commit()
+    con.close()
+
+    storage = Storage(db_path)
+    assert storage.has_any_for_profile("p1") is True
+    storage.mark_seen("p1", [_listing("new")], verdicts={"new": (True, "ok")})
+    top = storage.get_top_recommended("p1", limit=10)
+    assert len(top) == 1
+    assert top[0][0].id == "new"
+    storage.close()

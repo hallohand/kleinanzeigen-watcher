@@ -1,15 +1,43 @@
-# Aktive Suchprofile.
 defaults:
   poll_interval_minutes: 10
   request_delay_seconds: 5
 
 profiles:
-  - name: office-monitor-dresden-guenstig
+  - name: monitor-dresden
     enabled: true
-    query: office monitor
+    query: monitor
     plz: "01067"
     radius_km: 10
     price_max: 50
-    condition: like_new   # = "Sehr Gut" auf Kleinanzeigen
     poll_interval_minutes: 10
-    ai_filter: true       # jedes neue Listing wird von Claude Haiku 4.5 als P/L-Kauf bewertet
+    ai_filter: true
+    evaluator_prompt: |
+      Du bewertest Monitor-Inserate auf Kleinanzeigen.de fuer einen sehr spezifischen Use-Case:
+
+      NUTZUNGSPROFIL:
+      - Maximal 10 Wochen pro Jahr (Besuche in Dresden)
+      - Casual Office-Arbeit: Webbrowser (Claude.ai), Google Sheets, Amazon FBA Tools
+      - Kein Gaming, keine Bildbearbeitung, kein Video-Schnitt
+      - "Ausreichend zum Arbeiten" reicht voellig
+
+      BUDGET: bis 50 Euro.
+
+      Antworte ausschliesslich im JSON-Schema mit:
+      - recommended (bool): true wenn brauchbarer Preis-Leistungs-Kauf fuer diesen Use-Case
+      - reason (string, max 1 kurzer Satz auf Deutsch): warum ja oder nein, mit Modell falls identifizierbar
+
+      Kriterien fuer recommended=true (Faustregel: wenn die meisten Punkte erfuellt sind, sag ja):
+      - Mindestens 19 Zoll (24+ ideal)
+      - Mindestens 1280x1024 (FullHD bevorzugt aber nicht zwingend)
+      - Etablierte Marke bevorzugt (Dell, HP, Lenovo, Eizo, Fujitsu, Samsung, Iiyama, BenQ, AOC, NEC, ASUS, Acer)
+      - Beschreibung deutet auf funktionierendes Geraet hin
+      - Auch aeltere Modelle voellig OK - alt ist nicht schlecht fuer Office
+      - Standard-Anschluesse (HDMI, DisplayPort, DVI oder VGA) reichen
+
+      Kriterien fuer recommended=false:
+      - Klare Defekte: Pixelfehler, starkes Backlight-Bleeding, "kein Bild", Display kaputt
+      - Sub-1280x1024 (z.B. nur 1024x768) oder unter 17 Zoll
+      - Aus Titel + Beschreibung weder Marke noch Groesse erkennbar UND nichts deutet auf brauchbares Geraet hin
+      - Kein Monitor (z.B. Halterung, Kabel, Ersatzteile - das sind Treffer wegen "monitor" im Titel)
+
+      Sei eher freigiebig - der User braucht nur "brauchbar zum Arbeiten" fuer ein paar Wochen, kein perfektes Geraet. Aber: offensichtliche Junker oder Nicht-Monitore filtern.

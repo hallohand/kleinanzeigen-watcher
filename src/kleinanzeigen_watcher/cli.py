@@ -46,7 +46,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--env-file", default=".env", dest="env_file")
     run.add_argument("--log-dir", default=None, dest="log_dir")
     run.add_argument("--bootstrap", action="store_true", help="Poll each profile once, mark as seen, and exit (no notifications).")
+    run.add_argument("--evaluate-existing", action="store_true", dest="evaluate_existing",
+                     help="Like --bootstrap but runs the AI evaluator on every current listing and persists verdicts. Still no Telegram.")
     run.add_argument("-v", "--verbose", action="store_true")
+
+    top5 = sub.add_parser("top5", help="Show the top recommended listings per profile.")
+    top5.add_argument("--config", default="config.yaml")
+    top5.add_argument("--env-file", default=".env", dest="env_file")
+    top5.add_argument("--profile", default=None, help="Limit to a specific profile name.")
+    top5.add_argument("--limit", type=int, default=5)
+    top5.add_argument("--telegram", action="store_true", help="Send the list to Telegram instead of stdout.")
 
     return parser
 
@@ -134,7 +143,10 @@ def cmd_run(
     )
 
     try:
-        if args.bootstrap:
+        if args.evaluate_existing:
+            for profile in config.active_profiles():
+                scheduler.poll_once(profile, bootstrap=True, evaluate_during_bootstrap=True)
+        elif args.bootstrap:
             scheduler.run_until(deadline_iterations=1)
         else:
             scheduler.install_signal_handlers()
@@ -143,6 +155,73 @@ def cmd_run(
         fetcher.close()
         notifier.close()
         storage.close()
+    return 0
+
+
+def cmd_top5(
+    args: argparse.Namespace,
+    *,
+    env: dict[str, str] | None = None,
+    stdout: IO[str] | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> int:
+    out = stdout or sys.stdout
+    if env is None:
+        env_path = Path(args.env_file)
+        if env_path.exists():
+            load_dotenv(env_path)
+        env = dict(os.environ)
+
+    try:
+        config = load_config(args.config, env=env)
+    except (ValueError, OSError) as exc:
+        print(f"config error: {exc}", file=out)
+        return 2
+
+    storage = Storage(config.db_path)
+    profile_names = (
+        [args.profile]
+        if args.profile
+        else [p.name for p in config.active_profiles()]
+    )
+
+    sections: list[str] = []
+    for name in profile_names:
+        top = storage.get_top_recommended(name, limit=args.limit)
+        if not top:
+            sections.append(f"<b>{name}</b>\n(noch keine Empfehlungen)")
+            continue
+        lines = [f"<b>Top {len(top)} — {name}</b>"]
+        for i, (listing, reason) in enumerate(top, 1):
+            lines.append(f"{i}. <b>{listing.title}</b> — {listing.price}")
+            lines.append(f"   🤖 {reason}")
+            lines.append(f'   <a href="{listing.url}">öffnen</a>')
+        sections.append("\n".join(lines))
+
+    text = "\n\n".join(sections)
+
+    if args.telegram:
+        notifier = Notifier(
+            bot_token=config.telegram_bot_token,
+            chat_id=config.telegram_chat_id,
+            transport=transport,
+        )
+        try:
+            notifier._post("sendMessage", {  # noqa: SLF001
+                "chat_id": config.telegram_chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            })
+        finally:
+            notifier.close()
+    else:
+        # Strip HTML for terminal display
+        import re
+        plain = re.sub(r"<[^>]+>", "", text)
+        print(plain, file=out)
+
+    storage.close()
     return 0
 
 
@@ -162,5 +241,7 @@ def main(argv: list[str] | None = None) -> int:
             fetcher.close()
     if args.command == "run":
         return cmd_run(args)
+    if args.command == "top5":
+        return cmd_top5(args)
     parser.print_help()
     return 2
