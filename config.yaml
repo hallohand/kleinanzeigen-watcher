@@ -1,0 +1,14 @@
+# Aktive Suchprofile.
+defaults:
+  poll_interval_minutes: 10
+  request_delay_seconds: 5
+
+profiles:
+  - name: office-monitor-dresden-guenstig
+    enabled: true
+    query: office monitor
+    plz: "01067"
+    radius_km: 10
+    price_max: 50
+    condition: like_new   # = "Sehr Gut" auf Kleinanzeigen
+    poll_interval_minutes: 10

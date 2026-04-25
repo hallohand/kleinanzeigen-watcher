@@ -154,6 +154,26 @@ def test_run_until_polls_each_active_profile_once(tmp_path: Path) -> None:
     assert storage.has_any_for_profile("b") is True
 
 
+def test_request_stop_wakes_run_forever_immediately(tmp_path: Path) -> None:
+    import threading
+    import time as real_time
+
+    html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
+    storage = Storage(tmp_path / "db")
+    sched, _ = _make_scheduler(fetcher=_make_fetcher(html), storage=storage)
+
+    t = threading.Thread(target=sched.run_forever, daemon=True)
+    t.start()
+    real_time.sleep(0.5)  # let it enter the wait()
+    start = real_time.monotonic()
+    sched.request_stop()
+    t.join(timeout=3.0)
+    elapsed = real_time.monotonic() - start
+
+    assert not t.is_alive(), "run_forever did not stop"
+    assert elapsed < 1.0, f"stop took {elapsed:.2f}s — should be near-instant"
+
+
 def test_topad_filtering_respects_profile_setting(tmp_path: Path) -> None:
     html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
     storage = Storage(tmp_path / "db")

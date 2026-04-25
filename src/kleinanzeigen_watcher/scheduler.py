@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -31,7 +32,7 @@ class Scheduler:
         self._fetcher = fetcher
         self._storage = storage
         self._notifier = notifier
-        self._stop_requested = False
+        self._stop_event = threading.Event()
 
     def poll_once(self, profile: Profile, *, bootstrap: bool = False) -> int:
         url = build_search_url(
@@ -87,7 +88,7 @@ class Scheduler:
         return sent
 
     def request_stop(self) -> None:
-        self._stop_requested = True
+        self._stop_event.set()
 
     def install_signal_handlers(self) -> None:
         signal.signal(signal.SIGTERM, lambda *_: self.request_stop())
@@ -97,10 +98,10 @@ class Scheduler:
         """Polls every active profile up to deadline_iterations times. Used in tests + bootstrap mode."""
         active = [p for p in self._profiles if p.enabled]
         for _ in range(deadline_iterations):
-            if self._stop_requested:
+            if self._stop_event.is_set():
                 return
             for profile in active:
-                if self._stop_requested:
+                if self._stop_event.is_set():
                     return
                 self.poll_once(profile)
 
@@ -111,16 +112,17 @@ class Scheduler:
             return
         next_run: dict[str, float] = {p.name: time.monotonic() for p in active}
         log.info("starting main loop with %d active profile(s)", len(active))
-        while not self._stop_requested:
+        while not self._stop_event.is_set():
             now = time.monotonic()
             due = [p for p in active if next_run[p.name] <= now]
             for profile in due:
-                if self._stop_requested:
+                if self._stop_event.is_set():
                     break
                 self.poll_once(profile)
                 next_run[profile.name] = time.monotonic() + profile.poll_interval_minutes * 60
-            if self._stop_requested:
+            if self._stop_event.is_set():
                 break
             sleep_for = max(1.0, min(next_run.values()) - time.monotonic())
-            time.sleep(min(sleep_for, 30.0))
+            # Event-aware sleep — wakes immediately on SIGTERM via request_stop().
+            self._stop_event.wait(timeout=min(sleep_for, 30.0))
         log.info("main loop stopped")
