@@ -48,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--bootstrap", action="store_true", help="Poll each profile once, mark as seen, and exit (no notifications).")
     run.add_argument("--evaluate-existing", action="store_true", dest="evaluate_existing",
                      help="Like --bootstrap but runs the AI evaluator on every current listing and persists verdicts. Still no Telegram.")
+    run.add_argument("--once", action="store_true",
+                     help="Poll each active profile exactly once with notifications, then exit. For external schedulers (cron / GitHub Actions).")
     run.add_argument("-v", "--verbose", action="store_true")
 
     top5 = sub.add_parser("top5", help="Show the top recommended listings per profile.")
@@ -148,6 +150,9 @@ def cmd_run(
                 scheduler.poll_once(profile, bootstrap=True, evaluate_during_bootstrap=True)
         elif args.bootstrap:
             scheduler.run_until(deadline_iterations=1)
+        elif args.once:
+            for profile in config.active_profiles():
+                scheduler.poll_once(profile)
         else:
             scheduler.install_signal_handlers()
             scheduler.run_forever()

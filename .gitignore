@@ -4,10 +4,11 @@ __pycache__/
 .venv/
 venv/
 .env
-*.db
 *.db-journal
 *.log
 logs/
+
+# kleinanzeigen.db is intentionally tracked - it's the persistent state across cloud runs.
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

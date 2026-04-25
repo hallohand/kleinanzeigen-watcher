@@ -1,0 +1,58 @@
+name: poll
+
+on:
+  schedule:
+    # Alle 10 Minuten. GitHub-Actions-Cron ist UTC und kann ein paar Minuten driften.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Verhindert dass parallele Runs sich beim Push in die Quere kommen.
+# cancel-in-progress: false → ein neuer Trigger wartet, bis der laufende fertig ist.
+concurrency:
+  group: watcher-state
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Latest erst pullen, dann committen — vermeidet rebase-Konflikte bei Concurrency.
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Poll once
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m kleinanzeigen_watcher run --config config.yaml --once -v
+
+      - name: Persist DB if changed
+        run: |
+          if [ -n "$(git status --porcelain kleinanzeigen.db)" ]; then
+            git config user.name "kleinanzeigen-watcher[bot]"
+            git config user.email "actions@github.com"
+            git add kleinanzeigen.db
+            # [skip ci] verhindert dass der Commit selbst einen neuen Workflow-Run triggert.
+            git commit -m "chore(state): poll snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
+            # Falls in der Zwischenzeit ein anderer Run gepusht hat — rebasen und nochmal.
+            for i in 1 2 3; do
+              git pull --rebase --autostash && git push && break
+              sleep $((i * 5))
+            done
+          else
+            echo "DB unchanged, no commit."
+          fi
