@@ -56,7 +56,7 @@ class Evaluator:
         self._model = model
         self._system = system_prompt
 
-    def evaluate(self, listing: Listing) -> Verdict:
+    def evaluate(self, listing: Listing, *, system_prompt: str | None = None) -> Verdict:
         user_msg = (
             f"Titel: {listing.title}\n"
             f"Preis: {listing.price}\n"
@@ -69,7 +69,7 @@ class Evaluator:
             response = self._client.messages.parse(
                 model=self._model,
                 max_tokens=DEFAULT_MAX_TOKENS,
-                system=self._system,
+                system=system_prompt or self._system,
                 messages=[{"role": "user", "content": user_msg}],
                 output_format=Verdict,
             )

@@ -100,7 +100,7 @@ class Scheduler:
             verdict_reason: str | None = None
             if profile.ai_filter and self._evaluator is not None:
                 try:
-                    verdict = self._evaluator.evaluate(listing)
+                    verdict = self._evaluator.evaluate(listing, system_prompt=profile.evaluator_prompt)
                 except Exception:
                     log.exception("evaluator crashed for listing %s — skipping", listing.id)
                     continue
@@ -115,9 +115,9 @@ class Scheduler:
                 sent += 1
             except Exception:
                 log.exception("notify failed for listing %s in profile %s", listing.id, profile.name)
-        # Mark all parsed listings as seen, including the ones the evaluator rejected —
-        # avoids re-evaluating the same listing every poll cycle.
-        self._storage.mark_seen(profile.name, listings, verdicts=verdicts or None)
+        # Only mark genuinely-new listings — re-marking unchanged ones every poll
+        # would write the SQLite file each cycle and explode the git history.
+        self._storage.mark_seen(profile.name, new, verdicts=verdicts or None)
         if sent or evaluated_skipped:
             log.info("profile %s: %d notified, %d skipped by evaluator", profile.name, sent, evaluated_skipped)
         return sent
@@ -128,7 +128,7 @@ class Scheduler:
             return verdicts
         for i, listing in enumerate(listings, 1):
             try:
-                verdict = self._evaluator.evaluate(listing)
+                verdict = self._evaluator.evaluate(listing, system_prompt=profile.evaluator_prompt)
                 verdicts[listing.id] = (verdict.recommended, verdict.reason)
                 log.info("[%d/%d] %s → %s: %s", i, len(listings), listing.id,
                          "JA" if verdict.recommended else "nein", verdict.reason)

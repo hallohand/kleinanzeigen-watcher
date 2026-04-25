@@ -4,7 +4,6 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import anthropic
-import pytest
 
 from kleinanzeigen_watcher.evaluator import DEFAULT_SYSTEM_PROMPT, Evaluator, Verdict
 from kleinanzeigen_watcher.parser import Listing

@@ -52,6 +52,12 @@ class Storage:
         )
         return cur.fetchone() is not None
 
+    def count_seen(self, profile: str) -> int:
+        cur = self._conn.execute(
+            "SELECT COUNT(*) FROM seen_listings WHERE profile = ?", (profile,)
+        )
+        return int(cur.fetchone()[0])
+
     def filter_new(self, profile: str, listings: Iterable[Listing]) -> list[Listing]:
         listings = list(listings)
         if not listings:
@@ -92,6 +98,22 @@ class Storage:
             rows,
         )
         self._conn.commit()
+
+    def forget(self, profile: str, ids: Iterable[str]) -> int:
+        """Removes the given listing IDs from the profile's seen-store. Returns row count.
+
+        Used by tests and by ad-hoc cleanup; production code should not need this.
+        """
+        ids = list(ids)
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        cur = self._conn.execute(
+            f"DELETE FROM seen_listings WHERE profile = ? AND id IN ({placeholders})",
+            (profile, *ids),
+        )
+        self._conn.commit()
+        return cur.rowcount
 
     def get_top_recommended(self, profile: str, *, limit: int = 5) -> list[tuple[Listing, str]]:
         cur = self._conn.execute(

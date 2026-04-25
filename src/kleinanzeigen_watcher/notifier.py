@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import html
 import logging
-import random
 import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
+
+from ._retry import exp_backoff
 
 if TYPE_CHECKING:
     from .parser import Listing
@@ -43,13 +44,17 @@ class Notifier:
                     "parse_mode": "HTML",
                 })
                 return
-            except _NotifierError as exc:
+            except NotifierError as exc:
                 log.warning("sendPhoto failed (%s), falling back to sendMessage", exc)
+        self.send_html(text)
+
+    def send_html(self, text: str, *, disable_preview: bool = False) -> None:
+        """Send a free-form HTML-formatted message. Used by digest commands."""
         self._post("sendMessage", {
             "chat_id": self._chat_id,
             "text": text,
             "parse_mode": "HTML",
-            "disable_web_page_preview": False,
+            "disable_web_page_preview": disable_preview,
         })
 
     def close(self) -> None:
@@ -57,29 +62,31 @@ class Notifier:
 
     def _post(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{API_BASE}/bot{self._token}/{method}"
-        last_exc: Exception | None = None
+        last_failure: str = "no attempts made"
         for attempt in range(self._max_retries):
             try:
                 response = self._client.post(url, json=payload)
             except httpx.HTTPError as exc:
-                last_exc = exc
-                self._sleep_backoff(attempt)
+                last_failure = f"{type(exc).__name__}: {exc}"
+                time.sleep(exp_backoff(attempt))
                 continue
 
             if response.status_code == 200:
                 return response.json()
             if response.status_code == 429:
                 retry_after = self._extract_retry_after(response)
+                last_failure = f"HTTP 429 (Retry-After: {retry_after}s)"
                 log.warning("telegram 429, sleeping %ss", retry_after)
                 time.sleep(retry_after)
                 continue
             if response.status_code >= 500:
+                last_failure = f"HTTP {response.status_code}"
                 log.warning("telegram %d on attempt %d", response.status_code, attempt + 1)
-                self._sleep_backoff(attempt)
+                time.sleep(exp_backoff(attempt))
                 continue
-            raise _NotifierError(f"telegram {method} returned {response.status_code}: {response.text[:200]}")
+            raise NotifierError(f"telegram {method} returned {response.status_code}: {response.text[:200]}")
 
-        raise _NotifierError(f"telegram {method} failed after {self._max_retries} retries: {last_exc}")
+        raise NotifierError(f"telegram {method} failed after {self._max_retries} retries (last: {last_failure})")
 
     @staticmethod
     def _extract_retry_after(response: httpx.Response) -> float:
@@ -88,10 +95,6 @@ class Notifier:
             return float(body.get("parameters", {}).get("retry_after", 5))
         except ValueError:
             return float(response.headers.get("retry-after", 5))
-
-    @staticmethod
-    def _sleep_backoff(attempt: int) -> None:
-        time.sleep(min(60.0, 2.0 ** attempt + random.uniform(0, 1)))
 
     @staticmethod
     def _format(listing: Listing, *, verdict_reason: str | None = None) -> str:
@@ -113,5 +116,5 @@ class Notifier:
         return "\n".join(parts)
 
 
-class _NotifierError(Exception):
-    pass
+class NotifierError(Exception):
+    """Raised when a Telegram send ultimately fails (after retries or on non-retriable status)."""

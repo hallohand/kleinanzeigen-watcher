@@ -9,6 +9,8 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 
+from ._retry import exp_backoff
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -52,15 +54,15 @@ class Fetcher:
 
     def fetch(self, url: str) -> str:
         self._respect_min_delay()
-        last_exc: Exception | None = None
+        last_failure: str = "no attempts made"
         for attempt in range(self._max_retries):
             headers = {**_DEFAULT_HEADERS, "User-Agent": random.choice(self._user_agents)}
             try:
                 response = self._client.get(url, headers=headers)
             except httpx.HTTPError as exc:
-                last_exc = exc
+                last_failure = f"{type(exc).__name__}: {exc}"
                 log.warning("fetch error %s on attempt %d for %s", exc, attempt + 1, url)
-                self._backoff(attempt)
+                time.sleep(exp_backoff(attempt))
                 continue
             finally:
                 self._last_request_at = time.monotonic()
@@ -68,17 +70,19 @@ class Fetcher:
             if response.status_code == 200:
                 return response.text
             if response.status_code == 429:
-                retry_after = float(response.headers.get("retry-after", self._backoff_delay(attempt)))
+                retry_after = float(response.headers.get("retry-after", exp_backoff(attempt)))
+                last_failure = f"HTTP 429 (Retry-After: {retry_after}s)"
                 log.warning("429 on %s, sleeping %ss", url, retry_after)
                 time.sleep(retry_after)
                 continue
             if response.status_code >= 500:
+                last_failure = f"HTTP {response.status_code}"
                 log.warning("server error %d on attempt %d for %s", response.status_code, attempt + 1, url)
-                self._backoff(attempt)
+                time.sleep(exp_backoff(attempt))
                 continue
             raise FetchError(f"non-retriable status {response.status_code} for {url}")
 
-        raise FetchError(f"max retries exceeded for {url}: {last_exc}")
+        raise FetchError(f"max retries exceeded for {url} (last failure: {last_failure})")
 
     def is_allowed(self, url: str) -> bool:
         parsed = urlparse(url)
@@ -99,12 +103,6 @@ class Fetcher:
         wait = self._min_delay - elapsed
         if wait > 0:
             time.sleep(wait)
-
-    def _backoff(self, attempt: int) -> None:
-        time.sleep(self._backoff_delay(attempt))
-
-    def _backoff_delay(self, attempt: int) -> float:
-        return min(60.0, 2.0 ** attempt + random.uniform(0, 1))
 
     def _load_robots(self, origin: str) -> RobotFileParser:
         rp = RobotFileParser()

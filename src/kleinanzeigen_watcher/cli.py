@@ -10,8 +10,8 @@ from typing import IO
 import httpx
 from dotenv import load_dotenv
 
-from .config import load_config
-from .evaluator import DEFAULT_SYSTEM_PROMPT, Evaluator
+from .config import DEFAULT_USER_AGENTS, load_config
+from .evaluator import Evaluator
 from .fetcher import FetchError, Fetcher
 from .logging_setup import setup_logging
 from .notifier import Notifier
@@ -21,6 +21,13 @@ from .storage import Storage
 from .url_builder import build_search_url
 
 log = logging.getLogger(__name__)
+
+
+def _load_env(env_file: str) -> dict[str, str]:
+    env_path = Path(env_file)
+    if env_path.exists():
+        load_dotenv(env_path)
+    return dict(os.environ)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -104,10 +111,7 @@ def cmd_run(
     transport: httpx.BaseTransport | None = None,
 ) -> int:
     if env is None:
-        env_path = Path(args.env_file)
-        if env_path.exists():
-            load_dotenv(env_path)
-        env = dict(os.environ)
+        env = _load_env(args.env_file)
 
     try:
         config = load_config(args.config, env=env)
@@ -131,11 +135,9 @@ def cmd_run(
     )
     evaluator: Evaluator | None = None
     if config.anthropic_api_key and any(p.ai_filter for p in config.profiles):
-        custom_prompt = next((p.evaluator_prompt for p in config.profiles if p.ai_filter and p.evaluator_prompt), None)
-        evaluator = Evaluator(
-            api_key=config.anthropic_api_key,
-            system_prompt=custom_prompt or DEFAULT_SYSTEM_PROMPT,
-        )
+        # The default prompt is the fallback; per-profile evaluator_prompt overrides
+        # it inside Scheduler.poll_once via the per-call system_prompt argument.
+        evaluator = Evaluator(api_key=config.anthropic_api_key)
     scheduler = Scheduler(
         profiles=config.profiles,
         fetcher=fetcher,
@@ -172,10 +174,7 @@ def cmd_top5(
 ) -> int:
     out = stdout or sys.stdout
     if env is None:
-        env_path = Path(args.env_file)
-        if env_path.exists():
-            load_dotenv(env_path)
-        env = dict(os.environ)
+        env = _load_env(args.env_file)
 
     try:
         config = load_config(args.config, env=env)
@@ -212,16 +211,10 @@ def cmd_top5(
             transport=transport,
         )
         try:
-            notifier._post("sendMessage", {  # noqa: SLF001
-                "chat_id": config.telegram_chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            })
+            notifier.send_html(text, disable_preview=True)
         finally:
             notifier.close()
     else:
-        # Strip HTML for terminal display
         import re
         plain = re.sub(r"<[^>]+>", "", text)
         print(plain, file=out)
@@ -234,12 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "test":
-        fetcher = Fetcher(
-            user_agents=[
-                "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
-            ],
-            min_delay_seconds=0.0,
-        )
+        fetcher = Fetcher(user_agents=DEFAULT_USER_AGENTS, min_delay_seconds=0.0)
         try:
             return cmd_test(args, fetcher=fetcher)
         finally:

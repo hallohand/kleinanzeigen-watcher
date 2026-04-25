@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import patch
 
 import httpx
 import pytest
@@ -51,8 +50,7 @@ profiles:
     parser = build_parser()
     args = parser.parse_args(["run", "--config", str(cfg), "--bootstrap"])
 
-    with patch("kleinanzeigen_watcher.cli.httpx.MockTransport", side_effect=httpx.MockTransport):
-        rc = cmd_run(args, env=ENV, transport=httpx.MockTransport(handler))
+    rc = cmd_run(args, env=ENV, transport=httpx.MockTransport(handler))
     assert rc == 0
     # DB should now have rows for "monitors"
     import sqlite3

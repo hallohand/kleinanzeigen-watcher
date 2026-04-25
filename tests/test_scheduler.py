@@ -109,8 +109,7 @@ def test_new_listings_notified_on_subsequent_poll(tmp_path: Path) -> None:
     notifier.reset_mock()
 
     # Pretend one specific listing is new: remove its row from storage so filter_new returns it.
-    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
-    storage._conn.commit()  # type: ignore[attr-defined]
+    storage.forget("p1", ["3391823696"])
 
     sent = sched.poll_once(_profile())
     assert sent == 1
@@ -189,8 +188,7 @@ def test_evaluator_called_only_when_profile_ai_filter_true(tmp_path: Path) -> No
         evaluator=evaluator,
     )
     sched.poll_once(_profile(ai_filter=False), bootstrap=True)
-    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
-    storage._conn.commit()  # type: ignore[attr-defined]
+    storage.forget("p1", ["3391823696"])
     notifier.reset_mock()
 
     sched.poll_once(_profile(ai_filter=False))
@@ -211,8 +209,7 @@ def test_evaluator_filters_out_non_recommended_listings(tmp_path: Path) -> None:
         profiles=[_profile(ai_filter=True)], evaluator=evaluator,
     )
     sched.poll_once(_profile(ai_filter=True), bootstrap=True)
-    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
-    storage._conn.commit()  # type: ignore[attr-defined]
+    storage.forget("p1", ["3391823696"])
     notifier.reset_mock()
     evaluator.evaluate.reset_mock()
 
@@ -234,8 +231,7 @@ def test_evaluator_passes_reason_to_notifier_for_recommended(tmp_path: Path) -> 
         profiles=[_profile(ai_filter=True)], evaluator=evaluator,
     )
     sched.poll_once(_profile(ai_filter=True), bootstrap=True)
-    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
-    storage._conn.commit()  # type: ignore[attr-defined]
+    storage.forget("p1", ["3391823696"])
     notifier.reset_mock()
 
     sched.poll_once(_profile(ai_filter=True))
@@ -250,7 +246,7 @@ def test_verdicts_persisted_to_storage(tmp_path: Path) -> None:
     storage = Storage(tmp_path / "db")
     evaluator = MagicMock(spec=Evaluator)
     # First call returns recommended True, rest False
-    evaluator.evaluate.side_effect = lambda lst: (
+    evaluator.evaluate.side_effect = lambda lst, **_: (
         Verdict(recommended=True, reason="ja " + lst.id) if lst.id == "3391823696"
         else Verdict(recommended=False, reason="nein")
     )
@@ -279,8 +275,7 @@ def test_non_recommended_still_marked_seen_to_avoid_re_evaluation(tmp_path: Path
         profiles=[_profile(ai_filter=True)], evaluator=evaluator,
     )
     sched.poll_once(_profile(ai_filter=True), bootstrap=True)
-    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
-    storage._conn.commit()  # type: ignore[attr-defined]
+    storage.forget("p1", ["3391823696"])
     evaluator.evaluate.reset_mock()
 
     sched.poll_once(_profile(ai_filter=True))
@@ -297,16 +292,10 @@ def test_topad_filtering_respects_profile_setting(tmp_path: Path) -> None:
     # First profile excludes topads (default)
     sched, _ = _make_scheduler(fetcher=_make_fetcher(html), storage=storage)
     sched.poll_once(_profile(name="default"))
-    cur = storage._conn.execute(  # type: ignore[attr-defined]
-        "SELECT COUNT(*) FROM seen_listings WHERE profile = ?", ("default",)
-    )
-    default_count = cur.fetchone()[0]
+    default_count = storage.count_seen("default")
 
     sched, _ = _make_scheduler(fetcher=_make_fetcher(html), storage=storage)
     sched.poll_once(_profile(name="with_topads", include_topads=True))
-    cur = storage._conn.execute(  # type: ignore[attr-defined]
-        "SELECT COUNT(*) FROM seen_listings WHERE profile = ?", ("with_topads",)
-    )
-    topad_count = cur.fetchone()[0]
+    topad_count = storage.count_seen("with_topads")
 
     assert topad_count > default_count
