@@ -111,3 +111,26 @@ def test_listings_have_parsed_dates(srp_simple_html: str) -> None:
 def test_plz_fixture_returns_listings(srp_plz_html: str) -> None:
     listings = parse_listings(srp_plz_html)
     assert len(listings) > 0
+
+
+def test_location_clean_when_no_distance(srp_simple_html: str) -> None:
+    listings = parse_listings(srp_simple_html)
+    target = next(l for l in listings if l.id == "3391823696")
+    assert target.location == "14542 Werder (Havel)"
+    assert target.distance is None
+
+
+def test_distance_extracted_when_radius_search() -> None:
+    html = (FIXTURES / "srp_radius_live.html").read_text(encoding="utf-8")
+    listings = parse_listings(html)
+    target = next(l for l in listings if l.id == "3385062863")
+    assert target.location == "28865 Lilienthal"
+    assert target.distance == "11 km"
+
+
+def test_no_internal_whitespace_in_location() -> None:
+    html = (FIXTURES / "srp_radius_live.html").read_text(encoding="utf-8")
+    listings = parse_listings(html)
+    for listing in listings:
+        assert "\n" not in listing.location
+        assert "  " not in listing.location  # no double-space

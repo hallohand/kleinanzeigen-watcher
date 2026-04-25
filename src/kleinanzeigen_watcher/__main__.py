@@ -1,6 +1,6 @@
-def main() -> None:
-    raise NotImplementedError("CLI entrypoint - implementation pending.")
+import sys
 
+from .cli import main
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -21,11 +21,13 @@ class Listing:
     posted_at: datetime | None
     is_topad: bool
     is_pro: bool
+    distance: str | None = None
 
 
 _HEUTE_RE = re.compile(r"^Heute,\s*(\d{1,2}):(\d{2})$")
 _GESTERN_RE = re.compile(r"^Gestern,\s*(\d{1,2}):(\d{2})$")
 _DATE_RE = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})$")
+_DISTANCE_RE = re.compile(r"\((\d+)\s*km\)")
 
 
 def parse_date(text: str, *, now: datetime | None = None) -> datetime | None:
@@ -47,6 +49,18 @@ def _text(node: Node | None) -> str:
     return node.text(strip=True) if node else ""
 
 
+def _parse_location_and_distance(node: Node | None) -> tuple[str, str | None]:
+    if node is None:
+        return "", None
+    raw = node.text(strip=True)
+    distance = None
+    if m := _DISTANCE_RE.search(raw):
+        distance = f"{m.group(1)} km"
+    location = _DISTANCE_RE.sub("", raw)
+    location = " ".join(location.split())  # collapse all whitespace runs
+    return location, distance
+
+
 def _is_topad(article: Node) -> bool:
     parent = article.parent
     if not parent:
@@ -63,7 +77,7 @@ def _parse_one(article: Node, now: datetime | None) -> Listing | None:
 
     title = _text(article.css_first("h2.text-module-begin"))
     price = _text(article.css_first("p.aditem-main--middle--price-shipping--price"))
-    location = _text(article.css_first("div.aditem-main--top--left"))
+    location, distance = _parse_location_and_distance(article.css_first("div.aditem-main--top--left"))
     description = _text(article.css_first("p.aditem-main--middle--description"))
     date_raw = _text(article.css_first("div.aditem-main--top--right"))
 
@@ -83,6 +97,7 @@ def _parse_one(article: Node, now: datetime | None) -> Listing | None:
         posted_at=parse_date(date_raw, now=now),
         is_topad=_is_topad(article),
         is_pro=is_pro,
+        distance=distance,
     )
 
 

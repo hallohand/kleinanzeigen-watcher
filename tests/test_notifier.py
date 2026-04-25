@@ -143,6 +143,23 @@ def test_url_used_as_anchor_in_text() -> None:
     assert 'href="https://www.kleinanzeigen.de/s-anzeige/x/1234567"' in captured["text"]
 
 
+def test_distance_included_in_message_when_present() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return _ok_response()
+
+    listing = Listing(
+        id="1", title="t", url="u", price="5 €", location="01067 Dresden",
+        description="", image_url=None, posted_at=None,
+        is_topad=False, is_pro=False, distance="11 km",
+    )
+    n = Notifier(bot_token="T", chat_id="42", transport=httpx.MockTransport(handler))
+    n.send_listing(listing)
+    assert "11 km" in captured["text"]
+
+
 def test_description_truncated_to_200_chars() -> None:
     captured: dict[str, str] = {}
 

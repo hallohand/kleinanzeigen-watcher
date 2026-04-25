@@ -98,6 +98,8 @@ class Notifier:
         title = html.escape(listing.title or "(ohne Titel)")
         price = html.escape(listing.price or "")
         location = html.escape(listing.location or "")
+        if listing.distance:
+            location = f"{location} ({html.escape(listing.distance)})" if location else html.escape(listing.distance)
         desc = html.escape((listing.description or "")[:DESCRIPTION_LIMIT])
         meta_line = " | ".join(part for part in (price, location) if part)
         parts = [f"<b>{title}</b>"]
