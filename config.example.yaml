@@ -1,0 +1,34 @@
+# Beispielkonfiguration - nach config.yaml kopieren und anpassen.
+# Globale Defaults (von Profilen ueberschreibbar).
+defaults:
+  poll_interval_minutes: 10
+  request_delay_seconds: 5
+  user_agents:
+    - "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+
+# Liste der Suchprofile. Jedes wird unabhaengig gepollt.
+profiles:
+  - name: office-monitor-dresden
+    enabled: true
+    query: office monitor
+    plz: "01067"
+    radius_km: 20
+    price_min: 50
+    price_max: 200
+    shipping: any           # ja | nein | any
+    poll_interval_minutes: 10
+
+  - name: mechanical-keyboard-bundesweit
+    enabled: true
+    query: mechanical keyboard
+    shipping: ja
+    price_max: 80
+    poll_interval_minutes: 15
+
+  - name: sample-paused
+    enabled: false
+    query: vintage thinkpad
+    plz: "10115"
+    radius_km: 50
+    poll_interval_minutes: 30
