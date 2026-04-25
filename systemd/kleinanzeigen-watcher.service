@@ -4,6 +4,9 @@ Documentation=https://github.com/jonas-seidel/kleinanzeigen
 # Netz erst aufwarten lassen; nss-lookup ist im User-Bus nicht garantiert,
 # darum nur ein "weiches" After= ohne hartes Requires=.
 After=network-online.target
+# Crash-Loop-Schutz gehoert laut systemd-Doku in die [Unit]-Sektion.
+StartLimitBurst=3
+StartLimitIntervalSec=600
 
 [Service]
 Type=simple
@@ -19,11 +22,9 @@ ExecStart=/home/jonas/Claude/kleinanzeigen/.venv/bin/python -m kleinanzeigen_wat
 KillSignal=SIGTERM
 TimeoutStopSec=20
 
-# Restart-Policy: bei Crash neu starten, aber Crash-Loops abfangen.
+# Restart-Policy: bei Crash neu starten.
 Restart=on-failure
 RestartSec=30
-StartLimitBurst=3
-StartLimitIntervalSec=600
 
 # Logging in das User-Journal: journalctl --user -u kleinanzeigen-watcher
 StandardOutput=journal
