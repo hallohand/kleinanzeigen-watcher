@@ -12,3 +12,4 @@ profiles:
     price_max: 50
     condition: like_new   # = "Sehr Gut" auf Kleinanzeigen
     poll_interval_minutes: 10
+    ai_filter: true       # jedes neue Listing wird von Claude Haiku 4.5 als P/L-Kauf bewertet

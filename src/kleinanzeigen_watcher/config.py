@@ -28,6 +28,8 @@ class Profile:
     enabled: bool = True
     include_topads: bool = False
     include_pro: bool = True
+    ai_filter: bool = False
+    evaluator_prompt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,7 @@ class Config:
     telegram_bot_token: str
     telegram_chat_id: str
     db_path: Path = DEFAULT_DB_PATH
+    anthropic_api_key: str | None = None
 
     def active_profiles(self) -> list[Profile]:
         return [p for p in self.profiles if p.enabled]
@@ -63,6 +66,7 @@ def _build_profile(raw: dict[str, object], defaults: dict[str, object]) -> Profi
     if radius_km is not None and plz is None:
         raise ValueError(f"profile '{name}' has radius_km but no plz")
     poll_interval = int(raw.get("poll_interval_minutes", defaults.get("poll_interval_minutes", 10)))
+    evaluator_prompt = raw.get("evaluator_prompt") or defaults.get("evaluator_prompt")
     return Profile(
         name=name,
         enabled=enabled,
@@ -77,6 +81,8 @@ def _build_profile(raw: dict[str, object], defaults: dict[str, object]) -> Profi
         poll_interval_minutes=poll_interval,
         include_topads=bool(raw.get("include_topads", False)),
         include_pro=bool(raw.get("include_pro", True)),
+        ai_filter=bool(raw.get("ai_filter", defaults.get("ai_filter", False))),
+        evaluator_prompt=str(evaluator_prompt) if evaluator_prompt else None,
     )
 
 
@@ -97,6 +103,12 @@ def load_config(path: Path | str, *, env: dict[str, str] | None = None) -> Confi
     user_agents = list(defaults.get("user_agents") or DEFAULT_USER_AGENTS)
     request_delay = float(defaults.get("request_delay_seconds", 5.0))
     db_path = Path(str(defaults.get("db_path", DEFAULT_DB_PATH)))
+    anthropic_key = env.get("ANTHROPIC_API_KEY") or None
+
+    if any(p.ai_filter for p in profiles) and not anthropic_key:
+        raise ValueError(
+            "Profile mit ai_filter: true gesetzt, aber ANTHROPIC_API_KEY fehlt im Environment"
+        )
 
     return Config(
         profiles=profiles,
@@ -105,4 +117,5 @@ def load_config(path: Path | str, *, env: dict[str, str] | None = None) -> Confi
         telegram_bot_token=token,
         telegram_chat_id=chat_id,
         db_path=db_path,
+        anthropic_api_key=anthropic_key,
     )

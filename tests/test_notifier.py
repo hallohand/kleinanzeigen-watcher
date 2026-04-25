@@ -143,6 +143,32 @@ def test_url_used_as_anchor_in_text() -> None:
     assert 'href="https://www.kleinanzeigen.de/s-anzeige/x/1234567"' in captured["text"]
 
 
+def test_verdict_reason_included_in_message() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return _ok_response()
+
+    n = Notifier(bot_token="T", chat_id="42", transport=httpx.MockTransport(handler))
+    n.send_listing(_listing(), verdict_reason="Dell-Marke, 24 Zoll FullHD im Budget")
+
+    assert "Dell-Marke" in captured["text"]
+
+
+def test_no_verdict_reason_means_no_robot_section() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return _ok_response()
+
+    n = Notifier(bot_token="T", chat_id="42", transport=httpx.MockTransport(handler))
+    n.send_listing(_listing())
+
+    assert "🤖" not in captured["text"]
+
+
 def test_distance_included_in_message_when_present() -> None:
     captured: dict[str, str] = {}
 

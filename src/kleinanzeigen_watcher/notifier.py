@@ -32,8 +32,8 @@ class Notifier:
         self._max_retries = max_retries
         self._client = httpx.Client(timeout=timeout, transport=transport)
 
-    def send_listing(self, listing: Listing) -> None:
-        text = self._format(listing)
+    def send_listing(self, listing: Listing, *, verdict_reason: str | None = None) -> None:
+        text = self._format(listing, verdict_reason=verdict_reason)
         if listing.image_url:
             try:
                 self._post("sendPhoto", {
@@ -94,7 +94,7 @@ class Notifier:
         time.sleep(min(60.0, 2.0 ** attempt + random.uniform(0, 1)))
 
     @staticmethod
-    def _format(listing: Listing) -> str:
+    def _format(listing: Listing, *, verdict_reason: str | None = None) -> str:
         title = html.escape(listing.title or "(ohne Titel)")
         price = html.escape(listing.price or "")
         location = html.escape(listing.location or "")
@@ -105,6 +105,8 @@ class Notifier:
         parts = [f"<b>{title}</b>"]
         if meta_line:
             parts.append(meta_line)
+        if verdict_reason:
+            parts.append(f"🤖 {html.escape(verdict_reason)}")
         if desc:
             parts.append(desc)
         parts.append(f'<a href="{listing.url}">Anzeige öffnen</a>')

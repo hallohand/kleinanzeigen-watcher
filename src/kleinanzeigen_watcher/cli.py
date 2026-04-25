@@ -11,6 +11,7 @@ import httpx
 from dotenv import load_dotenv
 
 from .config import load_config
+from .evaluator import DEFAULT_SYSTEM_PROMPT, Evaluator
 from .fetcher import FetchError, Fetcher
 from .logging_setup import setup_logging
 from .notifier import Notifier
@@ -117,11 +118,19 @@ def cmd_run(
         chat_id=config.telegram_chat_id,
         transport=transport,
     )
+    evaluator: Evaluator | None = None
+    if config.anthropic_api_key and any(p.ai_filter for p in config.profiles):
+        custom_prompt = next((p.evaluator_prompt for p in config.profiles if p.ai_filter and p.evaluator_prompt), None)
+        evaluator = Evaluator(
+            api_key=config.anthropic_api_key,
+            system_prompt=custom_prompt or DEFAULT_SYSTEM_PROMPT,
+        )
     scheduler = Scheduler(
         profiles=config.profiles,
         fetcher=fetcher,
         storage=storage,
         notifier=notifier,
+        evaluator=evaluator,
     )
 
     try:

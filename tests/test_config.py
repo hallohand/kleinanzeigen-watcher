@@ -169,3 +169,51 @@ profiles:
 """)
     result = load_config(cfg, env=VALID_ENV)
     assert str(result.db_path) == "/tmp/foo.db"
+
+
+def test_ai_filter_default_false(tmp_path: Path) -> None:
+    cfg = _write(tmp_path, """
+profiles:
+  - name: a
+    query: x
+""")
+    result = load_config(cfg, env=VALID_ENV)
+    assert result.profiles[0].ai_filter is False
+    assert result.anthropic_api_key is None
+
+
+def test_ai_filter_true_with_anthropic_key_loads(tmp_path: Path) -> None:
+    cfg = _write(tmp_path, """
+profiles:
+  - name: a
+    query: x
+    ai_filter: true
+""")
+    env = {**VALID_ENV, "ANTHROPIC_API_KEY": "sk-ant-test"}
+    result = load_config(cfg, env=env)
+    assert result.profiles[0].ai_filter is True
+    assert result.anthropic_api_key == "sk-ant-test"
+
+
+def test_ai_filter_true_without_anthropic_key_raises(tmp_path: Path) -> None:
+    cfg = _write(tmp_path, """
+profiles:
+  - name: a
+    query: x
+    ai_filter: true
+""")
+    with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
+        load_config(cfg, env=VALID_ENV)
+
+
+def test_evaluator_prompt_overridable_per_profile(tmp_path: Path) -> None:
+    cfg = _write(tmp_path, """
+profiles:
+  - name: a
+    query: x
+    ai_filter: true
+    evaluator_prompt: "Bewerte nur Stehlampen."
+""")
+    env = {**VALID_ENV, "ANTHROPIC_API_KEY": "k"}
+    result = load_config(cfg, env=env)
+    assert result.profiles[0].evaluator_prompt == "Bewerte nur Stehlampen."

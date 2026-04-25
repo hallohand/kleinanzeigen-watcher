@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from kleinanzeigen_watcher.config import Profile
+from kleinanzeigen_watcher.evaluator import Evaluator, Verdict
 from kleinanzeigen_watcher.fetcher import Fetcher
 from kleinanzeigen_watcher.notifier import Notifier
 from kleinanzeigen_watcher.scheduler import Scheduler
@@ -49,6 +50,7 @@ def _make_scheduler(
     fetcher: Fetcher,
     storage: Storage,
     profiles: list[Profile] | None = None,
+    evaluator: Evaluator | None = None,
 ) -> tuple[Scheduler, MagicMock]:
     notifier = MagicMock(spec=Notifier)
     sched = Scheduler(
@@ -56,6 +58,7 @@ def _make_scheduler(
         fetcher=fetcher,
         storage=storage,
         notifier=notifier,
+        evaluator=evaluator,
     )
     return sched, notifier
 
@@ -172,6 +175,96 @@ def test_request_stop_wakes_run_forever_immediately(tmp_path: Path) -> None:
 
     assert not t.is_alive(), "run_forever did not stop"
     assert elapsed < 1.0, f"stop took {elapsed:.2f}s — should be near-instant"
+
+
+def test_evaluator_called_only_when_profile_ai_filter_true(tmp_path: Path) -> None:
+    html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
+    storage = Storage(tmp_path / "db")
+    evaluator = MagicMock(spec=Evaluator)
+    evaluator.evaluate.return_value = Verdict(recommended=True, reason="ok")
+
+    sched, notifier = _make_scheduler(
+        fetcher=_make_fetcher(html), storage=storage,
+        profiles=[_profile(ai_filter=False)],
+        evaluator=evaluator,
+    )
+    sched.poll_once(_profile(ai_filter=False), bootstrap=True)
+    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
+    storage._conn.commit()  # type: ignore[attr-defined]
+    notifier.reset_mock()
+
+    sched.poll_once(_profile(ai_filter=False))
+
+    evaluator.evaluate.assert_not_called()
+    assert notifier.send_listing.call_count == 1
+
+
+def test_evaluator_filters_out_non_recommended_listings(tmp_path: Path) -> None:
+    html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
+    storage = Storage(tmp_path / "db")
+    evaluator = MagicMock(spec=Evaluator)
+    # evaluate returns False for all listings
+    evaluator.evaluate.return_value = Verdict(recommended=False, reason="zu klein")
+
+    sched, notifier = _make_scheduler(
+        fetcher=_make_fetcher(html), storage=storage,
+        profiles=[_profile(ai_filter=True)], evaluator=evaluator,
+    )
+    sched.poll_once(_profile(ai_filter=True), bootstrap=True)
+    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
+    storage._conn.commit()  # type: ignore[attr-defined]
+    notifier.reset_mock()
+    evaluator.evaluate.reset_mock()
+
+    sent = sched.poll_once(_profile(ai_filter=True))
+
+    assert sent == 0
+    evaluator.evaluate.assert_called_once()
+    notifier.send_listing.assert_not_called()
+
+
+def test_evaluator_passes_reason_to_notifier_for_recommended(tmp_path: Path) -> None:
+    html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
+    storage = Storage(tmp_path / "db")
+    evaluator = MagicMock(spec=Evaluator)
+    evaluator.evaluate.return_value = Verdict(recommended=True, reason="Dell, 24 Zoll, FullHD")
+
+    sched, notifier = _make_scheduler(
+        fetcher=_make_fetcher(html), storage=storage,
+        profiles=[_profile(ai_filter=True)], evaluator=evaluator,
+    )
+    sched.poll_once(_profile(ai_filter=True), bootstrap=True)
+    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
+    storage._conn.commit()  # type: ignore[attr-defined]
+    notifier.reset_mock()
+
+    sched.poll_once(_profile(ai_filter=True))
+
+    notifier.send_listing.assert_called_once()
+    kwargs = notifier.send_listing.call_args.kwargs
+    assert kwargs.get("verdict_reason") == "Dell, 24 Zoll, FullHD"
+
+
+def test_non_recommended_still_marked_seen_to_avoid_re_evaluation(tmp_path: Path) -> None:
+    html = (FIXTURES / "srp_simple.html").read_text(encoding="utf-8")
+    storage = Storage(tmp_path / "db")
+    evaluator = MagicMock(spec=Evaluator)
+    evaluator.evaluate.return_value = Verdict(recommended=False, reason="no")
+
+    sched, _ = _make_scheduler(
+        fetcher=_make_fetcher(html), storage=storage,
+        profiles=[_profile(ai_filter=True)], evaluator=evaluator,
+    )
+    sched.poll_once(_profile(ai_filter=True), bootstrap=True)
+    storage._conn.execute("DELETE FROM seen_listings WHERE id = ?", ("3391823696",))  # type: ignore[attr-defined]
+    storage._conn.commit()  # type: ignore[attr-defined]
+    evaluator.evaluate.reset_mock()
+
+    sched.poll_once(_profile(ai_filter=True))
+    sched.poll_once(_profile(ai_filter=True))
+
+    # Second poll_once should NOT call evaluator again — listing already seen
+    assert evaluator.evaluate.call_count == 1
 
 
 def test_topad_filtering_respects_profile_setting(tmp_path: Path) -> None:

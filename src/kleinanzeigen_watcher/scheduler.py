@@ -12,6 +12,7 @@ from .url_builder import build_search_url
 
 if TYPE_CHECKING:
     from .config import Profile
+    from .evaluator import Evaluator
     from .fetcher import Fetcher
     from .notifier import Notifier
     from .storage import Storage
@@ -27,11 +28,13 @@ class Scheduler:
         fetcher: Fetcher,
         storage: Storage,
         notifier: Notifier,
+        evaluator: Evaluator | None = None,
     ) -> None:
         self._profiles = profiles
         self._fetcher = fetcher
         self._storage = storage
         self._notifier = notifier
+        self._evaluator = evaluator
         self._stop_event = threading.Event()
 
     def poll_once(self, profile: Profile, *, bootstrap: bool = False) -> int:
@@ -75,16 +78,30 @@ class Scheduler:
 
         new = self._storage.filter_new(profile.name, listings)
         sent = 0
+        evaluated_skipped = 0
         for listing in new:
+            verdict_reason: str | None = None
+            if profile.ai_filter and self._evaluator is not None:
+                try:
+                    verdict = self._evaluator.evaluate(listing)
+                except Exception:
+                    log.exception("evaluator crashed for listing %s — skipping", listing.id)
+                    continue
+                if not verdict.recommended:
+                    evaluated_skipped += 1
+                    log.info("profile %s: skipping %s — %s", profile.name, listing.id, verdict.reason)
+                    continue
+                verdict_reason = verdict.reason
             try:
-                self._notifier.send_listing(listing)
+                self._notifier.send_listing(listing, verdict_reason=verdict_reason)
                 sent += 1
             except Exception:
                 log.exception("notify failed for listing %s in profile %s", listing.id, profile.name)
-        # Mark all parsed listings as seen, not just newly notified — avoids re-trying failures forever.
+        # Mark all parsed listings as seen, including the ones the evaluator rejected —
+        # avoids re-evaluating the same listing every poll cycle.
         self._storage.mark_seen(profile.name, listings)
-        if sent:
-            log.info("profile %s: notified %d new listings", profile.name, sent)
+        if sent or evaluated_skipped:
+            log.info("profile %s: %d notified, %d skipped by evaluator", profile.name, sent, evaluated_skipped)
         return sent
 
     def request_stop(self) -> None:
